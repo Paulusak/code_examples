@@ -1,0 +1,148 @@
+{% trans_default_domain 'rent.tenants' %}
+
+{% import 'rent/accounting/data_grid/transactions/row.html.twig' as data_grid_row %}
+
+<div class="d-flex flex-column h-100">
+    <div class="flex-grow-1">
+        {{ _self.transaction_detail(transaction) }}
+        {{ _self.note(transaction) }}
+    </div>
+    <div class="mt-3 mb-2">
+        {{ _self.relatedPayments(transaction, relatedPayments) }}
+        {{ _self.files(transaction) }}
+    </div>
+</div>
+
+{% macro transaction_detail(transaction) %}
+    <x:drawer.title label="{{ transaction.title }}" />
+    <x:list.group>
+        {% if transaction.isIncoming %}
+            <x:list.item.data title="{{ 'detail.accounting_page.table.transaction_type' | trans }}" data="{{ 'detail.accounting_page.table.transaction_type_receivable' | trans }}" />
+        {% else %}
+            <x:list.item.data title="{{ 'detail.accounting_page.table.transaction_type' | trans }}" data="{{ 'detail.accounting_page.table.transaction_type_payable' | trans }}" />
+        {% endif %}
+        <x:list.item.data title="{{ 'detail.accounting_page.table.state' | trans }}">
+            {{ data_grid_row.status_badge(transaction) }}
+        </x:list.item.data>
+        <x:list.item.data title="{{ 'detail.accounting_page.table.due_date' | trans }}" data="{{ transaction.dueDate|format_date }}" />
+        <x:list.item.data title="{{ 'detail.accounting_page.total_amount' | trans }}" data="{{ transaction.totalAmount|format_money }}" />
+        {% if transaction.isPartiallyPaid %}
+            <x:list.item.data title="{{ 'detail.accounting_page.paid_amount' | trans }}">
+                <span class="text-success">{{ transaction.paidAmount|format_money }}</span>
+            </x:list.item.data>
+        {% endif %}
+        {% if transaction.propertyExpenseCategory is not null %}
+            <x:list.item.data title="{{ 'detail.accounting_page.property_expense_category' | trans }}" data="{{ ('property_expense_category.' ~ transaction.propertyExpenseCategory)|trans({}, 'rent.accounting') }}" />
+        {% endif %}
+        {% if transaction.isPaid %}
+            <x:list.item.data title="{{ 'detail.accounting_page.paid_at' | trans }}" data="{{ transaction.paidAt|format_date }}" />
+        {% endif %}
+        {% if transaction.propertyId is not empty %}
+            <x:list.item.data title="{{ 'detail.accounting_page.table.property' | trans }}">
+                <a href="{{ ledger_page_url(transaction.propertyId) }}" class="text-link" target="_top">
+                    {{ transaction.propertyName }}
+                </a>
+            </x:list.item.data>
+        {% endif %}
+        {% if transaction.tenantId is not empty %}
+            <x:list.item.data title="{{ 'detail.accounting_page.table.tenant' | trans }}">
+                <a href="{{ ledger_page_url(transaction.tenantId) }}" target="_top" class="text-link">
+                    {{ transaction.tenantName }}
+                </a>
+            </x:list.item.data>
+        {% endif %}
+        {% set authorName = 'detail.accounting_page.table.author'|trans %}
+        {% if transaction.authorId is not null %}
+           {% set authorName = transaction.authorId|entity_name(constant('Common\\User\\Infrastructure\\EntityName\\UserNameProvider::STYLE_PERSON_NAME'), 'Common\\User\\Domain\\User')  %}
+        {% endif %}
+        <x:list.item.data title="{{ 'detail.accounting_page.table.author' | trans }}" data="{{ authorName }}" />
+        {% if transaction.invalidatedAt is not null %}
+            <x:list.item.data title="{{ 'detail.accounting_page.invalidated_at' | trans }}" data="{{ transaction.invalidatedAt|format_date }}" />
+        {% endif %}
+    </x:list.group>
+{% endmacro %}
+
+{% macro note(transaction) %}
+    <x:list.item showDivider="{{ false }}">
+        <p class="text-sm text-bold text-dark mt-1">{{ 'detail.accounting_page.note' | trans }}</p>
+        <x:inlineEdit
+            path="{{ current_bounded_context_path('update_transaction_note_note', { entityId: transaction.id }) }}"
+        >
+            {{ transaction.note|default('--')|user_html|raw }}
+        </x:inlineEdit>
+    </x:list.item>
+{% endmacro %}
+
+{% macro relatedPayments(transaction, relatedPayments) %}
+    {% if relatedPayments|length > 0 %}
+        <p class="mb-3 text-bold">{{ 'detail.accounting_page.paid_with' | trans }}:</p>
+        <x:list.group class="mb-3">
+            {% for payment in relatedPayments %}
+                <x:list.item showDivider="{{ loop.last == false }}">
+                    <div class="d-flex">
+                        <div class="flex-grow-1">
+                            {% set paymentPaysMultipleTransactions = transaction.paidAmounts[payment.id|string].equals(payment.amount) == false %}
+                            <a
+                                target="_top"
+                                class="text-underline-dotted text-muted"
+                                href="{{ payment.id|entity_link(null, 'Rent\\Domain\\Accounting\\Payment\\Payment') }}"
+                                {% if paymentPaysMultipleTransactions %}
+                                    data-bs-toggle="tooltip"
+                                    title="{{ 'detail.accounting_page.payment_for_multiple_transactions_tooltip'|trans({ '%totalAmount%': payment.amount|format_money  }) }}"
+                                {% endif %}
+                            >
+                                {{ transaction.paidAmounts[payment.id|string]|format_money }} ({{ payment.paymentMethod }})
+                            </a>
+                        </div>
+                        <div class="d-flex">
+                            <span class="me-2">{{ payment.paidAt|format_date }}</span>
+                            <x:dropdown.menu.meatballs>
+                                <x:dropdown.item
+                                    title="{{ 'detail.accounting_page.show_payment' | trans }}"
+                                    path="{{ payment.id|entity_link(null, 'Rent\\Domain\\Accounting\\Payment\\Payment') }}"
+                                    target="_top"
+                                />
+                                <x:dropdown.divider />
+                                <x:dropdown.item.modal.delete
+                                    title="{{ 'detail.accounting_page.un_assign_payment' | trans }}"
+                                    deletePath="{{ path('rent_un_assign_payment', {
+                                        'transactionId': transaction.id,
+                                        'paymentId': payment.id,
+                                        'redirectUrl': turboFrameOriginUrl(app.request.uri)
+                                    }) }}"
+                                    linkTarget="_top"
+                                    modalContent="{{ 'detail.accounting_page.un_assign_payment_modal_content'|trans }}"
+                                    deleteBtnText="{{ 'detail.accounting_page.un_assign_payment' | trans }}"
+                                />
+                                <x:dropdown.item.modal.delete
+                                    title="{{ 'detail.accounting_page.remove_payment' | trans }}"
+                                    deletePath="{{ path('rent_remove-tenant-payment', {
+                                        'paymentId': payment.id,
+                                        'redirectUrl': turboFrameOriginUrl(app.request.uri)
+                                    }) }}"
+                                    linkTarget="_top"
+                                    modalContent="{{ 'detail.accounting_page.marked_unpaid' | trans }}"
+                                    deleteBtnText="{{ 'detail.accounting_page.remove_payment' | trans }}"
+                                />
+                            </x:dropdown.menu.meatballs>
+                        </div>
+                    </div>
+                </x:list.item>
+            {% endfor %}
+        </x:list.group>
+    {% endif %}
+{% endmacro %}
+
+{% macro files(transaction) %}
+    <turbo-frame
+        id="files-detail"
+        loading="lazy"
+        src="{{ current_bounded_context_path('files_detail_entity', {
+            'context': 'rent_transaction',
+            'entityId' : transaction.id,
+            'showForm': false,
+            'showSubtree': true,
+            'showCounter': true
+        }) }}"
+    ><x:spinner /></turbo-frame>
+{% endmacro %}
